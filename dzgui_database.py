@@ -50,7 +50,8 @@ class ServerRecord:
             'time': self.time_of_day,
             'server_type': self.server_type,
             'online': self.online,
-            'last_seen': self.last_seen
+            'last_seen': self.last_seen,
+            'mods': self.mods  # Include mods data for UI
         }
     
     @classmethod
@@ -120,8 +121,7 @@ class DZServerDatabase(QObject):
     # Signals
     progressUpdate = Signal(int, str)  # percentage, message
     serversLoaded = Signal(list)       # list of server dicts
-    cacheStatusChanged = Signal(bool, int)  # is_fresh, count
-    serverPingUpdated = Signal(dict)   # single server dict with fresh ping - NEW!
+    serverPingUpdated = Signal(dict)   # single server dict with fresh ping
     
     def __init__(self, db_path: Optional[Path] = None):
         super().__init__()
@@ -135,8 +135,7 @@ class DZServerDatabase(QObject):
         # Ensure parent directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Cache settings
-        self.cache_expiry_minutes = 15
+        # Cleanup settings (no more cache)
         self.offline_cleanup_hours = 2
         self.delete_cleanup_hours = 24
         
@@ -179,80 +178,11 @@ class DZServerDatabase(QObject):
             conn.execute("CREATE INDEX IF NOT EXISTS idx_servers_map ON servers(map_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_servers_ping ON servers(ping)")
             
-            # Create metadata table for cache info
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS cache_metadata (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            """)
+            # No more cache metadata table needed with BattleMetrics filtering
             
             conn.commit()
     
-    def is_cache_fresh(self) -> Tuple[bool, int]:
-        """Check if cache is fresh and return server count"""
-        with sqlite3.connect(self.db_path) as conn:
-            # Get cache timestamp
-            cursor = conn.execute(
-                "SELECT value FROM cache_metadata WHERE key = 'last_full_refresh'"
-            )
-            result = cursor.fetchone()
-            
-            if not result:
-                return False, 0
-            
-            last_refresh = float(result[0])
-            cache_age_minutes = (time.time() - last_refresh) / 60
-            
-            # Get server count
-            cursor = conn.execute("SELECT COUNT(*) FROM servers WHERE online = 1")
-            count = cursor.fetchone()[0]
-            
-            is_fresh = cache_age_minutes < self.cache_expiry_minutes
-            return is_fresh, count
     
-    def get_cached_servers(self, server_type: Optional[str] = None) -> List[Dict]:
-        """Get servers from cache"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            
-            if server_type:
-                cursor = conn.execute("""
-                    SELECT * FROM servers 
-                    WHERE online = 1 AND server_type = ?
-                    ORDER BY ping ASC, name ASC
-                """, (server_type,))
-            else:
-                cursor = conn.execute("""
-                    SELECT * FROM servers 
-                    WHERE online = 1
-                    ORDER BY ping ASC, name ASC
-                """)
-            
-            servers = []
-            for row in cursor:
-                record = ServerRecord(
-                    id=row['id'],
-                    name=row['name'],
-                    ip=row['ip'],
-                    port=row['port'],
-                    query_port=row['query_port'],
-                    map_name=row['map_name'],
-                    players=row['players'],
-                    max_players=row['max_players'],
-                    queue=row['queue'],
-                    ping=row['ping'],
-                    perspective=row['perspective'],
-                    time_of_day=row['time_of_day'],
-                    server_type=row['server_type'],
-                    online=bool(row['online']),
-                    last_seen=row['last_seen'],
-                    last_updated=row['last_updated'],
-                    mods=row['mods']
-                )
-                servers.append(record.to_dict())
-            
-            return servers
     
     def upsert_server(self, server: ServerRecord) -> int:
         """Insert or update a server record"""
@@ -390,14 +320,6 @@ class DZServerDatabase(QObject):
             if offline_count > 0 or deleted_count > 0:
                 print(f"Cleanup: {offline_count} marked offline, {deleted_count} deleted")
     
-    def set_cache_timestamp(self, key: str = 'last_full_refresh'):
-        """Update cache timestamp"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO cache_metadata (key, value)
-                VALUES (?, ?)
-            """, (key, str(time.time())))
-            conn.commit()
     
     def get_server_counts(self) -> Dict[str, int]:
         """Get server counts by type"""
@@ -484,18 +406,47 @@ class DZServerDatabase(QObject):
             """)
             stats['by_type'] = dict(cursor.fetchall())
             
-            # Cache age
-            cursor = conn.execute(
-                "SELECT value FROM cache_metadata WHERE key = 'last_full_refresh'"
-            )
-            result = cursor.fetchone()
-            if result:
-                cache_age = (time.time() - float(result[0])) / 60
-                stats['cache_age_minutes'] = round(cache_age, 1)
-            else:
-                stats['cache_age_minutes'] = None
+            # No more cache age - using real-time BattleMetrics filtering
+            stats['filtering_method'] = 'BattleMetrics API (real-time)'
                 
             return stats
+    
+    def get_top_servers(self, limit: int = 150) -> List[Dict]:
+        """Get top servers by player count"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            
+            cursor = conn.execute("""
+                SELECT * FROM servers 
+                WHERE online = 1
+                ORDER BY players DESC, ping ASC, name ASC
+                LIMIT ?
+            """, (limit,))
+            
+            servers = []
+            for row in cursor:
+                record = ServerRecord(
+                    id=row['id'],
+                    name=row['name'],
+                    ip=row['ip'],
+                    port=row['port'],
+                    query_port=row['query_port'],
+                    map_name=row['map_name'],
+                    players=row['players'],
+                    max_players=row['max_players'],
+                    queue=row['queue'],
+                    ping=row['ping'],
+                    perspective=row['perspective'],
+                    time_of_day=row['time_of_day'],
+                    server_type=row['server_type'],
+                    online=bool(row['online']),
+                    last_seen=row['last_seen'],
+                    last_updated=row['last_updated'],
+                    mods=row['mods']
+                )
+                servers.append(record.to_dict())
+            
+            return servers
 
 
 # Singleton instance
