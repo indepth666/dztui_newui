@@ -4,7 +4,6 @@
 
 DayZConnect is a fast, intuitive server browser for DayZ that displays the most popular servers with real-time ping updates and smart SQLite caching. Built with Python and PySide6 for a modern, responsive experience.
 
-![DayZConnect Screenshot](screenshot.png)
 
 ## ✨ Features
 

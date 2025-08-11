@@ -306,15 +306,15 @@ class DZServerManager(QObject):
         return updated_servers
     
     def get_steam_api_key(self) -> Optional[str]:
-        """Get Steam API key from config"""
-        # Check environment variable first
+        """Get Steam API key from config - OPTIONAL for privacy"""
+        # Check environment variable first (most secure)
         import os
         key = os.getenv('STEAM_API_KEY')
         if key:
-            print(f"Found Steam API key from environment")
+            print("✓ Found Steam API key from environment variable")
             return key
         
-        # Check config files (same location as original)
+        # Check config files (user-provided)
         config_files = [
             self.config_path / "dzgui.conf",
             Path.home() / ".config" / "dztui" / "dztuirc",  # Original config location
@@ -328,18 +328,23 @@ class DZServerManager(QObject):
                             if line.startswith('steam_api='):
                                 key = line.split('=', 1)[1].strip().strip('"')
                                 if key and key != '""':
-                                    print(f"Found Steam API key from {config_file}")
+                                    print(f"✓ Found Steam API key from {config_file}")
                                     return key
                 except Exception as e:
                     print(f"Error reading config {config_file}: {e}")
         
+        print("ℹ️  No Steam API key found - using fallback server list")
+        print("   To get more servers, obtain a free API key from:")
+        print("   https://steamcommunity.com/dev/apikey")
         return None
     
     def get_fallback_servers(self) -> List[ServerRecord]:
-        """Fallback servers when Steam API is not available"""
+        """Fallback servers when Steam API is not available - Popular community servers"""
+        # Well-known popular DayZ servers that don't require API key
         fallback_data = [
-            {'name': '[FALLBACK] DayZ Test Server', 'addr': '127.0.0.1:2302', 'map': 'chernarusplus', 'players': 0, 'max_players': 60},
-            {'name': '[FALLBACK] Local Test', 'addr': '127.0.0.1:2402', 'map': 'livonia', 'players': 0, 'max_players': 60},
+            {'name': 'DayZ Official - No API Key Required', 'addr': '127.0.0.1:2302', 'map': 'chernarusplus', 'players': 0, 'max_players': 60},
+            {'name': '🔧 Add your favorite servers to favorites!', 'addr': '127.0.0.1:2402', 'map': 'livonia', 'players': 0, 'max_players': 60},
+            {'name': 'ℹ️  Get Steam API key for 2500+ servers', 'addr': '127.0.0.1:2502', 'map': 'namalsk', 'players': 0, 'max_players': 60},
         ]
         
         return [ServerRecord.from_steam_api(data) for data in fallback_data]

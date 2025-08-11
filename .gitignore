@@ -1,4 +1,12 @@
 tags
 CLAUDE.md
 __pycache__
+*.pyc
+.DS_Store
+venv/
+.env
+**/dztuirc
+**/.config/
+config/*.key
+*.log
 
